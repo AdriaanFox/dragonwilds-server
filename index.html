@@ -5,14 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Server Control</title>
 <style>
-:root{--bg:#121417;--bg2:#1b1f24;--panel:#20252b;--line:#323a43;--fg:#ece7dd;--muted:#9aa3ab;--ember:#f2a93b;--ok:#6fd38f;--warn:#f2c14e;--bad:#ff7a6b}
+:root{--bg:#121417;--bg2:#1b1f24;--panel:#20252b;--line:#323a43;--fg:#ece7dd;--muted:#9aa3ab;--ember:#f2a93b;--ok:#6fd38f;--warn:#f2c14e;--bad:#ff7a6b;--blue:#6fb3ff}
 @media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#f4f1ea;--bg2:#ebe6db;--panel:#fffdf8;--line:#d6cfc1;--fg:#1f1b16;--muted:#6b645a}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
-.wrap{max-width:860px;margin:0 auto;padding:28px 16px 48px}
+.wrap{max-width:900px;margin:0 auto;padding:28px 16px 48px}
 h1{margin:0 0 4px;font-size:clamp(28px,6vw,42px)}
 .sub{color:var(--muted);margin:0 0 18px}
 .demo{background:rgba(242,169,59,.12);border:1px solid var(--ember);color:var(--ember);border-radius:10px;padding:8px 12px;margin:0 0 16px;font-size:14.5px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px}
 .state{display:flex;align-items:center;gap:10px;font-weight:800;font-size:22px}
 .state i{width:14px;height:14px;border-radius:50%;background:var(--muted)}
 .state.up i{background:var(--ok);box-shadow:0 0 12px var(--ok)}.state.down i{background:var(--bad)}.state.busy i{background:var(--warn)}
@@ -20,7 +21,15 @@ h1{margin:0 0 4px;font-size:clamp(28px,6vw,42px)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:14px}
 .grid div{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
 .grid b{display:block;font-size:19px}.grid span{color:var(--muted);font-size:13.5px}
-.grid .warn b{color:var(--warn)}.grid .bad b{color:var(--bad)}
+.grid .warn b{color:var(--warn)}.grid .bad b{color:var(--bad)}.grid .good b{color:var(--ok)}
+.gtitle{font-weight:700;margin:0 0 2px;font-size:15px}
+.graphs{display:grid;grid-template-columns:1fr;gap:14px}
+.graph{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.ghead{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.gval{font-weight:800;font-size:20px}
+.gsmall{color:var(--muted);font-size:12.5px}
+.spark{width:100%;height:46px;display:block;margin-top:6px}
+.nodata{color:var(--muted);font-size:13px;height:46px;display:flex;align-items:center}
 .ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .ctl input{flex:1 1 200px;min-width:0;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:var(--fg)}
 button{font:inherit;font-weight:700;padding:9px 16px;border-radius:999px;border:1px solid var(--line);background:var(--bg2);color:var(--fg);cursor:pointer}
@@ -33,14 +42,35 @@ button.confirm{background:var(--bad);border-color:var(--bad);color:#1b130b}
 <body>
 <div class="wrap">
   <h1 id="title">Server</h1>
-  <p class="sub" id="sub">Health, start and stop. Stop and Restart need two taps and the admin password.</p>
-  <div class="demo" id="demo" style="display:none">Preview mode (fake data). Paste your Cloudflare relay address into <b>RELAY</b> at the top of the code to go live.</div>
+  <p class="sub" id="sub"></p>
+  <div class="demo" id="demo" style="display:none">Preview mode (fake data).</div>
+
   <div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <span class="state" id="state"><i></i><b>Checking…</b></span><span class="age" id="age"></span>
     </div>
     <div class="grid" id="grid"></div>
   </div>
+
+  <div class="panel">
+    <p class="gtitle">Trends</p>
+    <div class="graphs">
+      <div class="graph">
+        <div class="ghead"><span>Ping to server <span class="gsmall">(live, every 30s)</span></span><span class="gval" id="pingVal">—</span></div>
+        <div id="pingGraph"><div class="nodata">collecting…</div></div>
+        <div class="gsmall" id="pingStats"></div>
+      </div>
+      <div class="graph">
+        <div class="ghead"><span>Server CPU <span class="gsmall">(every ~5 min)</span></span><span class="gval" id="cpuVal">—</span></div>
+        <div id="cpuGraph"><div class="nodata">collecting…</div></div>
+      </div>
+      <div class="graph">
+        <div class="ghead"><span>Server memory <span class="gsmall">(every ~5 min)</span></span><span class="gval" id="ramVal">—</span></div>
+        <div id="ramGraph"><div class="nodata">collecting…</div></div>
+      </div>
+    </div>
+  </div>
+
   <div class="panel">
     <div class="ctl">
       <input id="pass" type="password" placeholder="Admin password" autocomplete="current-password">
@@ -56,29 +86,55 @@ button.confirm{background:var(--bad);border-color:var(--bad);color:#1b130b}
 const RELAY = "https://dragonwilds-relay.aadriaan9999.workers.dev";
 const TITLE = "Tafelberg Drake";
 
-// Until RELAY is filled in, the page runs on fake data so you can see how it looks.
 const DEMO = RELAY.includes("YOUR-WORKER");
-
 document.getElementById("title").textContent = TITLE; document.title = TITLE;
-document.getElementById("sub").textContent = "World: Kaapse Draak · health, start and stop. Stop and Restart need two taps and the admin password.";
+document.getElementById("sub").textContent = "World: Kaapse Draak · health, ping and control. Stop and Restart need two taps and the admin password.";
 if (DEMO) document.getElementById("demo").style.display = "block";
+
 const $ = s => document.querySelector(s);
 const ago = t => { const s = (Date.now() - t) / 1000; return s < 90 ? Math.round(s) + " s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 172800 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };
-const S = { st: null, pending: null, sentAt: 0 };
+const S = { st: null, ping: null, pending: null, sentAt: 0 };
 try { $("#pass").value = localStorage.getItem("admPass") || ""; } catch (e) {}
 
-function demoStatus() {
-  return { agent: "1.0.0", game: "Dragonwilds", running: true, busy: "",
-    cpu: 23.5, ramMB: 812, upMin: 96,
-    saved: new Date(Date.now() - 3 * 60000).toISOString(),
-    worldMB: 41.2, diskFreeGB: 24.7, sysRamFreeMB: 2680, at: Date.now() };
+const CAP = 120;  // keep ~1 hour of pings / a long trend of server stats
+function readArr(k){ try { return JSON.parse(localStorage.getItem(k) || "[]"); } catch (e) { return []; } }
+function writeArr(k, a){ try { localStorage.setItem(k, JSON.stringify(a.slice(-CAP))); } catch (e) {} }
+let pingHist = readArr("ph"), statHist = readArr("sh");
+
+function spark(vals, stroke){
+  const v = vals.filter(x => x != null && !isNaN(x));
+  if (v.length < 2) return '<div class="nodata">collecting…</div>';
+  const w = 300, h = 46, pad = 4;
+  let min = Math.min(...v), max = Math.max(...v); const rng = (max - min) || 1;
+  const pts = v.map((val, i) => {
+    const x = pad + (i / (v.length - 1)) * (w - 2 * pad);
+    const y = h - pad - ((val - min) / rng) * (h - 2 * pad);
+    return x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+  const lx = w - pad, ly = h - pad - ((v[v.length-1] - min) / rng) * (h - 2 * pad);
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.6" fill="${stroke}"/></svg>`;
 }
-async function load() {
-  if (DEMO) { S.st = demoStatus(); draw(); return; }
-  try { const r = await fetch(RELAY + "/status", { cache: "no-store" }); S.st = (await r.json()).status; } catch (e) { S.st = S.st || null; }
+const pingColor = ms => ms == null ? "var(--muted)" : ms < 150 ? "var(--ok)" : ms < 400 ? "var(--warn)" : "var(--bad)";
+
+function demoStatus(){ return { agent:"1.0.0", game:"Dragonwilds", running:true, busy:"", cpu: 20 + Math.round(Math.random()*30), ramMB: 1200 + Math.round(Math.random()*300), upMin:96, saved:new Date(Date.now()-3*60000).toISOString(), worldMB:11, diskFreeGB:21.1, sysRamFreeMB:3000, at:Date.now() }; }
+
+async function load(){
+  let ms = null;
+  if (DEMO) { S.st = demoStatus(); ms = 20 + Math.round(Math.random()*40); }
+  else {
+    try { const t0 = performance.now(); const r = await fetch(RELAY + "/status", { cache: "no-store" }); ms = Math.round(performance.now() - t0); S.st = (await r.json()).status; }
+    catch (e) { S.st = S.st || null; }
+  }
+  if (ms != null) { S.ping = ms; pingHist.push(ms); pingHist = pingHist.slice(-CAP); writeArr("ph", pingHist); }
+  const st = S.st;
+  if (st && st.at && (!statHist.length || statHist[statHist.length-1].at !== st.at)) {
+    statHist.push({ at: st.at, cpu: st.cpu == null ? null : +st.cpu, ram: st.ramMB == null ? null : +st.ramMB });
+    statHist = statHist.slice(-CAP); writeArr("sh", statHist);
+  }
   draw();
 }
-function draw() {
+
+function draw(){
   const st = S.st, fresh = st && Date.now() - st.at < 12 * 60000, el = $("#state");
   let txt = "Unknown", cls = "";
   if (!st) txt = "Server agent not set up yet";
@@ -88,24 +144,41 @@ function draw() {
   else if (st.running) { txt = "Running"; cls = "up"; } else { txt = "Stopped"; cls = "down"; }
   el.className = "state " + cls; el.querySelector("b").textContent = txt;
   $("#age").textContent = st ? "Last report " + ago(st.at) : "";
+
   const t = [], tile = (v, l, c) => t.push(`<div class="${c || ""}"><b>${v}</b><span>${l}</span></div>`);
+  if (S.ping != null) tile(S.ping + " ms", "ping to server", S.ping < 150 ? "good" : S.ping < 400 ? "warn" : "bad");
   if (st && st.running) {
+    if (st.upMin != null) tile(st.upMin < 120 ? st.upMin + " min" : (st.upMin / 60).toFixed(1) + " h", "uptime");
     if (st.cpu != null) tile(st.cpu + "%", "server CPU", st.cpu > 80 ? "bad" : st.cpu > 50 ? "warn" : "");
     if (st.ramMB != null) tile((st.ramMB / 1024).toFixed(1) + " GB", "server memory");
-    if (st.upMin != null) tile(st.upMin < 120 ? st.upMin + " min" : (st.upMin / 60).toFixed(1) + " h", "running for");
   }
+  if (st && st.players != null) tile(st.players, "players online");
   if (st && st.saved) tile(ago(new Date(st.saved)), "world last saved");
   if (st && st.worldMB != null) tile(st.worldMB + " MB", "saves size");
   if (st && st.diskFreeGB != null) tile(st.diskFreeGB + " GB", "disk free", st.diskFreeGB < 10 ? "bad" : st.diskFreeGB < 30 ? "warn" : "");
   if (st && st.sysRamFreeMB != null) tile((st.sysRamFreeMB / 1024).toFixed(1) + " GB", "PC memory free", st.sysRamFreeMB < 1500 ? "warn" : "");
   $("#grid").innerHTML = t.join("");
+
+  $("#pingVal").textContent = S.ping != null ? S.ping + " ms" : "—";
+  $("#pingVal").style.color = pingColor(S.ping);
+  $("#pingGraph").innerHTML = spark(pingHist, pingColor(S.ping));
+  if (pingHist.length >= 2) { const lo = Math.min(...pingHist), hi = Math.max(...pingHist), av = Math.round(pingHist.reduce((a,b)=>a+b,0)/pingHist.length); $("#pingStats").textContent = `min ${lo} · avg ${av} · max ${hi} ms`; }
+  const cpuArr = statHist.map(p => p.cpu), ramArr = statHist.map(p => p.ram);
+  const lastCpu = st && st.cpu != null ? st.cpu : [...cpuArr].reverse().find(x => x != null);
+  const lastRam = st && st.ramMB != null ? st.ramMB : [...ramArr].reverse().find(x => x != null);
+  $("#cpuVal").textContent = lastCpu != null ? lastCpu + " %" : "—";
+  $("#ramVal").textContent = lastRam != null ? (lastRam / 1024).toFixed(1) + " GB" : "—";
+  $("#cpuGraph").innerHTML = spark(cpuArr, "var(--ember)");
+  $("#ramGraph").innerHTML = spark(ramArr, "var(--blue)");
+
   const run = st && st.running, busy = st && st.busy;
   $("[data-cmd=start]").disabled = !st || run || !!busy; $("[data-cmd=stop]").disabled = !st || !run || !!busy; $("[data-cmd=restart]").disabled = !st || !run || !!busy;
   const lc = st && st.lastCmd;
   if (S.pending && lc && lc.cmd === S.pending && new Date(lc.at).getTime() > S.sentAt - 60000) { $("#note").textContent = lc.done ? `${lc.cmd}: ${lc.result}` : `${lc.cmd}: working on it…`; if (lc.done) S.pending = null; }
 }
-async function send(cmd) {
-  if (DEMO) { $("#note").textContent = `Preview mode: "${cmd}" isn't sent anywhere yet. Add your relay address to go live.`; return; }
+
+async function send(cmd){
+  if (DEMO) { $("#note").textContent = `Preview mode: "${cmd}" isn't sent anywhere.`; return; }
   const pass = $("#pass").value; if (!pass) { $("#note").textContent = "Type the admin password first."; $("#pass").focus(); return; }
   try { localStorage.setItem("admPass", pass); } catch (e) {}
   $("#note").textContent = `Sending ${cmd}…`;
@@ -116,7 +189,6 @@ async function send(cmd) {
     else $("#note").textContent = d.error === "wrong admin password" ? "Wrong admin password." : d.error === "slow down" ? "Wait a few seconds and try again." : "Could not send: " + (d.error || r.status);
   } catch (e) { $("#note").textContent = "Could not reach the relay."; }
 }
-// two taps for anything that stops the server
 document.querySelector(".ctl").addEventListener("click", e => {
   const b = e.target.closest("[data-cmd]"); if (!b || b.disabled) return; const c = b.dataset.cmd;
   if (c === "start") return send(c);
