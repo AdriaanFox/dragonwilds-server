@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Server Control</title>
+<style>
+:root{--bg:#121417;--bg2:#1b1f24;--panel:#20252b;--line:#323a43;--fg:#ece7dd;--muted:#9aa3ab;--ember:#f2a93b;--ok:#6fd38f;--warn:#f2c14e;--bad:#ff7a6b}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#f4f1ea;--bg2:#ebe6db;--panel:#fffdf8;--line:#d6cfc1;--fg:#1f1b16;--muted:#6b645a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:28px 16px 48px}
+h1{margin:0 0 4px;font-size:clamp(28px,6vw,42px)}
+.sub{color:var(--muted);margin:0 0 18px}
+.demo{background:rgba(242,169,59,.12);border:1px solid var(--ember);color:var(--ember);border-radius:10px;padding:8px 12px;margin:0 0 16px;font-size:14.5px}
+.state{display:flex;align-items:center;gap:10px;font-weight:800;font-size:22px}
+.state i{width:14px;height:14px;border-radius:50%;background:var(--muted)}
+.state.up i{background:var(--ok);box-shadow:0 0 12px var(--ok)}.state.down i{background:var(--bad)}.state.busy i{background:var(--warn)}
+.age{color:var(--muted);font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:14px}
+.grid div{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.grid b{display:block;font-size:19px}.grid span{color:var(--muted);font-size:13.5px}
+.grid .warn b{color:var(--warn)}.grid .bad b{color:var(--bad)}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ctl input{flex:1 1 200px;min-width:0;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:var(--fg)}
+button{font:inherit;font-weight:700;padding:9px 16px;border-radius:999px;border:1px solid var(--line);background:var(--bg2);color:var(--fg);cursor:pointer}
+button:hover:not(:disabled){border-color:var(--ember)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.confirm{background:var(--bad);border-color:var(--bad);color:#1b130b}
+.note{color:var(--muted);font-size:14.5px;margin:12px 0 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="title">Server</h1>
+  <p class="sub" id="sub">Health, start and stop. Stop and Restart need two taps and the admin password.</p>
+  <div class="demo" id="demo" style="display:none">Preview mode (fake data). Paste your Cloudflare relay address into <b>RELAY</b> at the top of the code to go live.</div>
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <span class="state" id="state"><i></i><b>Checking…</b></span><span class="age" id="age"></span>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
+  <div class="panel">
+    <div class="ctl">
+      <input id="pass" type="password" placeholder="Admin password" autocomplete="current-password">
+      <button type="button" data-cmd="start">▶ Start</button>
+      <button type="button" data-cmd="restart">↻ Restart</button>
+      <button type="button" data-cmd="stop">■ Stop</button>
+    </div>
+    <p class="note" id="note">The server PC picks up a command within a few seconds. Nothing is ever forced off; the saves are copied before every stop.</p>
+  </div>
+</div>
+<script>
+// ---- the only two settings ----
+const RELAY = "https://dragonwilds-relay.aadriaan9999.workers.dev";
+const TITLE = "Tafelberg Drake";
+
+// Until RELAY is filled in, the page runs on fake data so you can see how it looks.
+const DEMO = RELAY.includes("YOUR-WORKER");
+
+document.getElementById("title").textContent = TITLE; document.title = TITLE;
+document.getElementById("sub").textContent = "World: Kaapse Draak · health, start and stop. Stop and Restart need two taps and the admin password.";
+if (DEMO) document.getElementById("demo").style.display = "block";
+const $ = s => document.querySelector(s);
+const ago = t => { const s = (Date.now() - t) / 1000; return s < 90 ? Math.round(s) + " s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 172800 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };
+const S = { st: null, pending: null, sentAt: 0 };
+try { $("#pass").value = localStorage.getItem("admPass") || ""; } catch (e) {}
+
+function demoStatus() {
+  return { agent: "1.0.0", game: "Dragonwilds", running: true, busy: "",
+    cpu: 23.5, ramMB: 812, upMin: 96,
+    saved: new Date(Date.now() - 3 * 60000).toISOString(),
+    worldMB: 41.2, diskFreeGB: 24.7, sysRamFreeMB: 2680, at: Date.now() };
+}
+async function load() {
+  if (DEMO) { S.st = demoStatus(); draw(); return; }
+  try { const r = await fetch(RELAY + "/status", { cache: "no-store" }); S.st = (await r.json()).status; } catch (e) { S.st = S.st || null; }
+  draw();
+}
+function draw() {
+  const st = S.st, fresh = st && Date.now() - st.at < 12 * 60000, el = $("#state");
+  let txt = "Unknown", cls = "";
+  if (!st) txt = "Server agent not set up yet";
+  else if (st.busy === "stopping") { txt = "Stopping…"; cls = "busy"; }
+  else if (st.busy === "starting") { txt = "Starting…"; cls = "busy"; }
+  else if (!fresh) { txt = "No news from the server PC"; cls = "busy"; }
+  else if (st.running) { txt = "Running"; cls = "up"; } else { txt = "Stopped"; cls = "down"; }
+  el.className = "state " + cls; el.querySelector("b").textContent = txt;
+  $("#age").textContent = st ? "Last report " + ago(st.at) : "";
+  const t = [], tile = (v, l, c) => t.push(`<div class="${c || ""}"><b>${v}</b><span>${l}</span></div>`);
+  if (st && st.running) {
+    if (st.cpu != null) tile(st.cpu + "%", "server CPU", st.cpu > 80 ? "bad" : st.cpu > 50 ? "warn" : "");
+    if (st.ramMB != null) tile((st.ramMB / 1024).toFixed(1) + " GB", "server memory");
+    if (st.upMin != null) tile(st.upMin < 120 ? st.upMin + " min" : (st.upMin / 60).toFixed(1) + " h", "running for");
+  }
+  if (st && st.saved) tile(ago(new Date(st.saved)), "world last saved");
+  if (st && st.worldMB != null) tile(st.worldMB + " MB", "saves size");
+  if (st && st.diskFreeGB != null) tile(st.diskFreeGB + " GB", "disk free", st.diskFreeGB < 10 ? "bad" : st.diskFreeGB < 30 ? "warn" : "");
+  if (st && st.sysRamFreeMB != null) tile((st.sysRamFreeMB / 1024).toFixed(1) + " GB", "PC memory free", st.sysRamFreeMB < 1500 ? "warn" : "");
+  $("#grid").innerHTML = t.join("");
+  const run = st && st.running, busy = st && st.busy;
+  $("[data-cmd=start]").disabled = !st || run || !!busy; $("[data-cmd=stop]").disabled = !st || !run || !!busy; $("[data-cmd=restart]").disabled = !st || !run || !!busy;
+  const lc = st && st.lastCmd;
+  if (S.pending && lc && lc.cmd === S.pending && new Date(lc.at).getTime() > S.sentAt - 60000) { $("#note").textContent = lc.done ? `${lc.cmd}: ${lc.result}` : `${lc.cmd}: working on it…`; if (lc.done) S.pending = null; }
+}
+async function send(cmd) {
+  if (DEMO) { $("#note").textContent = `Preview mode: "${cmd}" isn't sent anywhere yet. Add your relay address to go live.`; return; }
+  const pass = $("#pass").value; if (!pass) { $("#note").textContent = "Type the admin password first."; $("#pass").focus(); return; }
+  try { localStorage.setItem("admPass", pass); } catch (e) {}
+  $("#note").textContent = `Sending ${cmd}…`;
+  try {
+    const r = await fetch(RELAY + "/admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pass, cmd }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok) { S.pending = cmd; S.sentAt = Date.now(); $("#note").textContent = `Sent "${cmd}". The server PC picks it up within a few seconds…`; setTimeout(load, 6000); setTimeout(load, 20000); setTimeout(load, 60000); }
+    else $("#note").textContent = d.error === "wrong admin password" ? "Wrong admin password." : d.error === "slow down" ? "Wait a few seconds and try again." : "Could not send: " + (d.error || r.status);
+  } catch (e) { $("#note").textContent = "Could not reach the relay."; }
+}
+// two taps for anything that stops the server
+document.querySelector(".ctl").addEventListener("click", e => {
+  const b = e.target.closest("[data-cmd]"); if (!b || b.disabled) return; const c = b.dataset.cmd;
+  if (c === "start") return send(c);
+  if (b.classList.contains("confirm")) { b.classList.remove("confirm"); b.textContent = b.dataset.label; return send(c); }
+  b.dataset.label = b.textContent; b.classList.add("confirm"); b.textContent = c === "stop" ? "Tap again to stop" : "Tap again to restart";
+  setTimeout(() => { if (b.classList.contains("confirm")) { b.classList.remove("confirm"); b.textContent = b.dataset.label; } }, 4000);
+});
+load(); setInterval(() => { if (!document.hidden) load(); }, 30000);
+</script>
+</body>
+</html>
